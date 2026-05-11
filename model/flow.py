@@ -28,13 +28,61 @@ class Flow:
         self._next_entity_id = 0
         self.time = 0.0
         self._spawn_callbacks: list[Callable[[str, SimpleEntity], None]] = []
+        self._metrics: dict = {}
+        self._reset_metrics()
+
+    def _reset_metrics(self) -> None:
+        self._metrics = {
+            "completed": 0,
+            "completion_times": [],
+            "times_in_system": [],
+        }
+
+    def reset(self) -> None:
+        """Reset simulation state while preserving topology."""
+        for data in self.nodes.values():
+            data["queue"] = []
+            data["busy_until"] = 0.0
+        self.entities = []
+        self._next_entity_id = 0
+        self.time = 0.0
+        self._reset_metrics()
+
+    def get_metrics(self) -> dict:
+        """Return a snapshot of current run metrics."""
+        completed = self._metrics["completed"]
+        times = self._metrics["times_in_system"]
+        return {
+            "completed": completed,
+            "avg_time_in_system": sum(times) / len(times) if times else 0.0,
+            "min_time_in_system": min(times) if times else 0.0,
+            "max_time_in_system": max(times) if times else 0.0,
+            "final_time": self.time,
+        }
 
     # ------------------------------------------------------------------
     # builder API
     # ------------------------------------------------------------------
 
-    def add_node(self, name: str, *, x: float = 0.0, y: float = 0.0, throughput: float = 1.0, label: str | None = None, sprite: str | None = None) -> None:
-        self.nodes[name] = {"x": x, "y": y, "throughput": throughput, "queue": [], "label": label or name, "sprite": sprite, "busy_until": 0.0}
+    def add_node(
+        self,
+        name: str,
+        *,
+        x: float = 0.0,
+        y: float = 0.0,
+        throughput: float = 1.0,
+        label: str | None = None,
+        sprite: str | None = None,
+    ) -> None:
+        self.nodes[name] = {
+            "x": x,
+            "y": y,
+            "throughput": throughput,
+            "queue": [],
+            "label": label or name,
+            "sprite": sprite,
+            "busy_until": 0.0,
+        }
 
     def add_edge(self, a: str, b: str, *, transit_time: float = 1.0) -> None:
         if a not in self.nodes or b not in self.nodes:
@@ -53,17 +101,21 @@ class Flow:
         self.entities.append(e)
         self.nodes[at]["queue"].append(e)
         e._node_enter_time = self.time  # type: ignore[attr-defined]
+        e._spawn_time = self.time  # type: ignore[attr-defined]
         for cb in self._spawn_callbacks:
             cb(at, e)
         return e
 
     def _outgoing(self, node: str) -> list[tuple[str, float]]:
-        return [(b, self.edges[(node, b)]["transit_time"]) for (a, b) in self.edges if a == node]
+        return [
+            (b, self.edges[(node, b)]["transit_time"])
+            for (a, b) in self.edges
+            if a == node
+        ]
 
     def tick(self, dt: float) -> None:
         """Advance simulation by dt seconds."""
         self.time += dt
-        print(self.nodes.items())
 
         for name, data in self.nodes.items():
             throughput = data["throughput"]
@@ -106,3 +158,9 @@ class Flow:
                     del e._transit_target  # type: ignore[attr-defined]
                     del e._transit_time  # type: ignore[attr-defined]
                     del e._transit_progress  # type: ignore[attr-defined]
+                    if target == "sink":
+                        spawn_time = getattr(e, "_spawn_time", self.time)
+                        time_in_system = self.time - spawn_time
+                        self._metrics["completed"] += 1
+                        self._metrics["completion_times"].append(self.time)
+                        self._metrics["times_in_system"].append(time_in_system)
