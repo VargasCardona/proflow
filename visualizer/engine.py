@@ -74,6 +74,7 @@ class Engine:
         run_duration: float | None = None,
         run_setup: Callable[[Flow], None] | None = None,
         pause_between_runs: bool = True,
+        time_scale: float = 1.0,
     ) -> None:
         self.flow = flow
         self.layout = layout or Layout.from_flow(flow)
@@ -87,6 +88,7 @@ class Engine:
         self.run_duration = run_duration
         self.run_setup = run_setup
         self.pause_between_runs = pause_between_runs
+        self.time_scale = time_scale
         self.current_run = 1
         self.results: list[dict] = []
 
@@ -94,7 +96,7 @@ class Engine:
         pad = 20
         self._slider_bar = pygame.Rect(pad, height - 40, width - pad * 2, 12)
         self._slider_min = 0.0
-        self._slider_max = 5.0
+        self._slider_max = 5000.0
 
         pygame.init()
         self.screen = pygame.display.set_mode((width, height))
@@ -123,13 +125,17 @@ class Engine:
             dt = self.clock.tick(self.fps) / 1000.0
             self._handle_events()
             if not self.paused:
-                self.flow.tick(dt * self.speed)
+                dt_eff = dt * self.speed * self.time_scale
+                if self.run_duration is not None:
+                    remaining = self.run_duration - self.flow.time
+                    if dt_eff > remaining:
+                        dt_eff = max(0.0, remaining)
+                self.flow.tick(dt_eff)
             self._render()
             if self.run_duration is not None and self.flow.time >= self.run_duration:
                 break
 
     def _wait_between_runs(self) -> None:
-        """Show transition screen and wait for user to continue."""
         waiting = True
         while waiting and self.running:
             for event in pygame.event.get():
@@ -175,9 +181,6 @@ class Engine:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     self.paused = not self.paused
-                elif event.key == pygame.K_s:
-                    if "source" in self.flow.nodes:
-                        self.flow.spawn("source")
                 elif event.key == pygame.K_q:
                     self.running = False
 
@@ -231,9 +234,8 @@ class Engine:
 
             q = len(data["queue"])
             if q:
-                pygame.draw.circle(
-                    self.screen, (255, 200, 0), (nl.x + 18, nl.y - 24), 6
-                )
+                surf = self._font.render(str(q), True, (255, 200, 0))
+                self.screen.blit(surf, (nl.x + 28, nl.y - 28))
 
         for e in self.flow.entities:
             pos = self._entity_pos(e)
@@ -258,11 +260,14 @@ class Engine:
         time_text = f"Time: {self.flow.time:.1f}"
         if self.run_duration is not None:
             time_text += f" / {self.run_duration:.1f}"
+        spd_text = f"Speed: {self.speed:.0f}x"
 
         surf_run = self._font.render(run_text, True, (255, 255, 255))
         surf_time = self._font.render(time_text, True, (255, 255, 255))
+        surf_spd = self._font.render(spd_text, True, (255, 255, 255))
         self.screen.blit(surf_run, (self.width - surf_run.get_width() - 20, 20))
         self.screen.blit(surf_time, (self.width - surf_time.get_width() - 20, 45))
+        self.screen.blit(surf_spd, (self.width - surf_spd.get_width() - 20, 70))
 
         pygame.display.flip()
 
