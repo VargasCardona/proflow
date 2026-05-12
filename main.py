@@ -8,14 +8,23 @@ from model.flow import Flow
 NUM_RUNS = 5
 RUN_DURATION = 480.0
 SPAWN_INTERVAL_MEAN = 25.0
-SERVICE_MEAN = 20.0     
+SERVICE_MEAN = 20.0
+RANDOM_SEED = 42
+
+random.seed(RANDOM_SEED)
 
 
 def build_flow() -> Flow:
     flow = Flow()
 
     flow.add_node(
-        "fila", x=100, y=300, throughput=0.0, label="Queue", sprite="station.png"
+        "fila",
+        x=100,
+        y=300,
+        throughput=0.0,
+        label="Queue",
+        sprite="station.png",
+        kind="queue",
     )
     flow.add_node(
         "mecanico",
@@ -93,9 +102,7 @@ def print_node_summary(results: list[dict]) -> None:
             nd = r["nodes"][name]
             aggr[name]["entries"].append(float(nd["entries"]))
             if nd["entries"] > 0:
-                aggr[name]["avg_time_min"].append(
-                    nd["cumulative_time"] / nd["entries"]
-                )
+                aggr[name]["avg_time_min"].append(nd["cumulative_time"] / nd["entries"])
             avg_cont = nd["content_area"] / final_time if final_time > 0 else 0.0
             aggr[name]["avg_content"].append(avg_cont)
             aggr[name]["max_content"].append(float(nd["content_max"]))
@@ -127,8 +134,8 @@ def print_node_summary(results: list[dict]) -> None:
         )
         avg_content = sum(aggr[name]["avg_content"]) / len(aggr[name]["avg_content"])
         max_content = sum(aggr[name]["max_content"]) / len(aggr[name]["max_content"])
-        final_content = (
-            sum(aggr[name]["final_content"]) / len(aggr[name]["final_content"])
+        final_content = sum(aggr[name]["final_content"]) / len(
+            aggr[name]["final_content"]
         )
         avg_util = sum(aggr[name]["utilization"]) / len(aggr[name]["utilization"])
 
@@ -171,7 +178,9 @@ def print_run_summary(results: list[dict]) -> None:
     print("-" * 60)
     if results:
         completed_vals = [r["completed"] for r in results]
-        avg_vals = [r["avg_time_in_system"] for r in results if r["avg_time_in_system"] > 0]
+        avg_vals = [
+            r["avg_time_in_system"] for r in results if r["avg_time_in_system"] > 0
+        ]
 
         print(
             f"{'Avg':>4} {sum(completed_vals) / len(completed_vals):>10.2f} "
@@ -198,7 +207,9 @@ def run_visual(flow: Flow) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="promodel DES simulator")
-    parser.add_argument("--visual", action="store_true", help="run with pygame visualizer")
+    parser.add_argument(
+        "--visual", action="store_true", help="run with pygame visualizer"
+    )
     args = parser.parse_args()
 
     flow = build_flow()

@@ -58,6 +58,7 @@ class Flow:
             data["queue"] = []
             data["serving"] = None
             data["busy_until"] = 0.0
+            data["_reserved"] = 0
         self.entities = []
         self._next_entity_id = 0
         self.time = 0.0
@@ -97,7 +98,6 @@ class Flow:
     def add_node(
         self,
         name: str,
-
         x: float = 0.0,
         y: float = 0.0,
         throughput: float = 1.0,
@@ -105,6 +105,7 @@ class Flow:
         sprite: str | None = None,
         capacity: int = 0,
         service_dist: Callable[[], float] | None = None,
+        kind: str = "process",
     ) -> None:
         self.nodes[name] = {
             "x": x,
@@ -117,6 +118,8 @@ class Flow:
             "busy_until": 0.0,
             "capacity": capacity,
             "service_dist": service_dist,
+            "kind": kind,
+            "_reserved": 0,
         }
         self._init_node_metrics(name)
 
@@ -128,6 +131,34 @@ class Flow:
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
+
+    def _accepts(self, node_name: str) -> bool:
+        """Return True if node_name has spare capacity (accounts for in-transit entities)."""
+        node = self.nodes[node_name]
+        capacity = node.get("capacity", 0)
+        if capacity == 0:
+            return True
+        occupied = len(node["queue"]) + node.get("_reserved", 0)
+        if capacity == 1 and node.get("serving") is not None:
+            occupied += 1
+        return occupied < capacity
+
+    def _start_transit(
+        self, e: SimpleEntity, src: str, target: str, transit: float
+    ) -> None:
+        """Remove e from src queue and place it in transit toward target."""
+        src_data = self.nodes[src]
+        if e in src_data["queue"]:
+            src_data["queue"].remove(e)
+        e.current_node = None
+        e.progress = 0.0
+        if hasattr(e, "_node_enter_time"):
+            del e._node_enter_time  # type: ignore[attr-defined]
+        e._transit_target = target  # type: ignore[attr-defined]
+        e._transit_src = src  # type: ignore[attr-defined]
+        e._transit_time = transit  # type: ignore[attr-defined]
+        e._transit_progress = 0.0  # type: ignore[attr-defined]
+        self.nodes[target]["_reserved"] = self.nodes[target].get("_reserved", 0) + 1
 
     def _node_content(self, name: str) -> int:
         data = self.nodes[name]
@@ -198,6 +229,7 @@ class Flow:
         entity._transit_src = name  # type: ignore[attr-defined]
         entity._transit_time = transit  # type: ignore[attr-defined]
         entity._transit_progress = 0.0  # type: ignore[attr-defined]
+        self.nodes[target]["_reserved"] = self.nodes[target].get("_reserved", 0) + 1
 
     def tick(self, dt: float) -> None:
         """Advance simulation by dt seconds."""
@@ -227,12 +259,11 @@ class Flow:
             del e._transit_target  # type: ignore[attr-defined]
             del e._transit_time  # type: ignore[attr-defined]
             del e._transit_progress  # type: ignore[attr-defined]
+            self.nodes[target]["_reserved"] = max(0, self.nodes[target].get("_reserved", 0) - 1)
 
             nm_tgt = self._node_metrics.get(target)
             if nm_tgt is not None:
                 nm_tgt["entries"] += 1
-
-            self.nodes[target]["queue"].append(e)
 
             if target == "sink":
                 spawn_time = getattr(e, "_spawn_time", self.time)
@@ -241,6 +272,7 @@ class Flow:
                 self._metrics["times_in_system"].append(self.time - spawn_time)
             else:
                 e._node_enter_time = self.time  # type: ignore[attr-defined]
+                self.nodes[target]["queue"].append(e)
 
         for name, data in self.nodes.items():
             nm = self._node_metrics.get(name)
@@ -284,27 +316,22 @@ class Flow:
                         e = queue.pop(0)
                         self._start_service(name, e)
                     else:
-                        # Pull from upstream queue
+                        # Pull from upstream queues
                         for (a, b) in self.edges:
                             if b != name:
                                 continue
                             up_queue = self.nodes[a]["queue"]
-                            if up_queue:
-                                e = up_queue.pop(0)
-                                nm_up = self._node_metrics.get(a)
-                                if nm_up is not None:
-                                    entered = getattr(e, "_node_enter_time", self.time)
-                                    nm_up["cumulative_time"] += self.time - entered
-                                transit_time = self.edges[(a, name)]["transit_time"]
-                                e.current_node = None
-                                e.progress = 0.0
-                                if hasattr(e, "_node_enter_time"):
-                                    del e._node_enter_time  # type: ignore[attr-defined]
-                                e._transit_target = name  # type: ignore[attr-defined]
-                                e._transit_src = a  # type: ignore[attr-defined]
-                                e._transit_time = transit_time  # type: ignore[attr-defined]
-                                e._transit_progress = 0.0  # type: ignore[attr-defined]
+                            if not up_queue:
+                                continue
+                            if not self._accepts(name):
                                 break
+                            e = up_queue.pop(0)
+                            self._start_transit(e, a, name, self.edges[(a, name)]["transit_time"])
+                            nm_up = self._node_metrics.get(a)
+                            if nm_up is not None:
+                                entered = getattr(e, "_node_enter_time", self.time)
+                                nm_up["cumulative_time"] += self.time - entered
+                            break
             else:
                 queue = data["queue"]
 
