@@ -223,8 +223,16 @@ class Engine:
 
         for name, data in self.flow.nodes.items():
             nl = self.layout.get(name)
+            kind = data.get("kind", "process")
             sprite = self.assets.get(nl.sprite)
-            if sprite:
+            if kind == "queue":
+                w, h = 80, 16
+                rect = pygame.Rect(nl.x - w // 2, nl.y - h // 2, w, h)
+                pygame.draw.rect(self.screen, (80, 80, 100), rect, border_radius=4)
+                pygame.draw.rect(
+                    self.screen, (140, 140, 180), rect, width=2, border_radius=4
+                )
+            elif sprite:
                 rect = sprite.get_rect(center=(nl.x, nl.y))
                 self.screen.blit(sprite, rect)
             else:
@@ -232,10 +240,18 @@ class Engine:
                     self.screen, (60, 60, 80), (nl.x, nl.y), 24, border=(120, 120, 160)
                 )
 
-            q = len(data["queue"])
-            if q:
-                surf = self._font.render(str(q), True, (255, 200, 0))
-                self.screen.blit(surf, (nl.x + 28, nl.y - 28))
+            outs = self.flow._outgoing(name)
+            if not outs:
+                count = self.flow._metrics.get("completed", 0)
+            else:
+                count = self.flow._node_content(name)
+
+            if count:
+                surf = self._font.render(str(count), True, (255, 200, 0))
+                if kind == "queue":
+                    self.screen.blit(surf, (nl.x + 42, nl.y - 28))
+                else:
+                    self.screen.blit(surf, (nl.x + 28, nl.y - 28))
 
         for e in self.flow.entities:
             pos = self._entity_pos(e)
@@ -274,6 +290,20 @@ class Engine:
     def _entity_pos(self, e: SimpleEntity) -> tuple[int, int]:
         if e.current_node is not None:
             nl = self.layout.get(e.current_node)
+            node_data = self.flow.nodes[e.current_node]
+            if node_data.get("kind") == "queue":
+                queue = node_data["queue"]
+                try:
+                    idx = queue.index(e)
+                except ValueError:
+                    idx = 0
+                w = 80
+                if len(queue) > 1:
+                    spacing = w / (len(queue) + 1)
+                    x = int(nl.x - w // 2 + spacing * (idx + 1))
+                else:
+                    x = nl.x
+                return (x, nl.y)
             return (nl.x, nl.y)
 
         if hasattr(e, "_transit_target"):
