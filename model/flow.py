@@ -259,7 +259,9 @@ class Flow:
             del e._transit_target  # type: ignore[attr-defined]
             del e._transit_time  # type: ignore[attr-defined]
             del e._transit_progress  # type: ignore[attr-defined]
-            self.nodes[target]["_reserved"] = max(0, self.nodes[target].get("_reserved", 0) - 1)
+            self.nodes[target]["_reserved"] = max(
+                0, self.nodes[target].get("_reserved", 0) - 1
+            )
 
             nm_tgt = self._node_metrics.get(target)
             if nm_tgt is not None:
@@ -317,7 +319,7 @@ class Flow:
                         self._start_service(name, e)
                     else:
                         # Pull from upstream queues
-                        for (a, b) in self.edges:
+                        for a, b in self.edges:
                             if b != name:
                                 continue
                             up_queue = self.nodes[a]["queue"]
@@ -326,11 +328,13 @@ class Flow:
                             if not self._accepts(name):
                                 break
                             e = up_queue.pop(0)
-                            self._start_transit(e, a, name, self.edges[(a, name)]["transit_time"])
                             nm_up = self._node_metrics.get(a)
                             if nm_up is not None:
                                 entered = getattr(e, "_node_enter_time", self.time)
                                 nm_up["cumulative_time"] += self.time - entered
+                            self._start_transit(
+                                e, a, name, self.edges[(a, name)]["transit_time"]
+                            )
                             break
             else:
                 queue = data["queue"]

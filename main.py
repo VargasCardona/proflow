@@ -111,19 +111,21 @@ def print_node_summary(results: list[dict]) -> None:
             aggr[name]["utilization"].append(util)
 
     print()
-    headers = [
-        "Nombre",
-        "Tiempo Programado (Min)",
-        "Capacidad",
-        "Total Entradas",
-        "Tiempo Por Entrada Promedio (Sec)",
-        "Contenido Promedio",
-        "Contenido Máximo",
-        "Contenido Actual",
-        "% Utilización",
+    cols = [
+        ("Nombre", 20, "<"),
+        ("T. Programado (Min)", 19, ">"),
+        ("Capacidad", 12, ">"),
+        ("Total Entradas", 14, ">"),
+        ("T. P/Entrada Prom. (Sec)", 24, ">"),
+        ("N Prom.", 10, ">"),
+        ("N Máximo", 10, ">"),
+        ("N Actual", 10, ">"),
+        ("% Utilización", 13, ">"),
     ]
-    print("| " + " | ".join(headers) + " |")
-    print("|" + "|".join([" --- " for _ in headers]) + "|")
+    total_width = sum(w for _, w, _ in cols) + len(cols) - 1
+
+    print(" | ".join(f"{h:{a}{w}}" for h, w, a in cols))
+    print("-" * total_width)
 
     for name in node_order:
         avg_entries = sum(aggr[name]["entries"]) / len(aggr[name]["entries"])
@@ -143,7 +145,7 @@ def print_node_summary(results: list[dict]) -> None:
             s = f"{val:,.2f}"
             return s.replace(",", "_").replace(".", ",").replace("_", ".")
 
-        row = [
+        values = [
             display_names[name],
             _fmt(RUN_DURATION),
             _fmt(capacities[name]),
@@ -154,7 +156,9 @@ def print_node_summary(results: list[dict]) -> None:
             _fmt(final_content),
             _fmt(avg_util),
         ]
-        print("| " + " | ".join(row) + " |")
+        print(" | ".join(f"{v:{a}{w}}" for v, (_, w, a) in zip(values, cols)))
+
+    print("-" * total_width)
 
 
 def print_run_summary(results: list[dict]) -> None:
